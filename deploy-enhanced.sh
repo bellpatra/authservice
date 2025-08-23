@@ -27,7 +27,6 @@ TOTAL_STEPS=18
 DOMAIN_NAME=""
 INSTALL_POSTGRES=false
 INSTALL_REDIS=false
-INSTALL_SSL=false
 APP_DIR="/var/local/authservice"
 USE_DOMAIN=false
 DIGITAL_OCEAN=false
@@ -110,8 +109,8 @@ show_welcome() {
     echo -e "${WHITE}Welcome to the Auth Service Deployment Script!${NC}"
     echo
     echo -e "${CYAN}This script will:${NC}"
-    echo -e "${VERTICAL} ${WHITE}•${NC} Install Java 17, Maven, Docker, and Nginx"
-    echo -e "${VERTICAL} ${WHITE}•${NC} Configure your domain and SSL certificates"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Install Java 17, Maven, and Docker"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Configure direct port access (port 8080)"
     echo -e "${VERTICAL} ${WHITE}•${NC} Set up PostgreSQL, Redis, and Kafka via Docker"
     echo -e "${VERTICAL} ${WHITE}•${NC} Create production-ready configuration files"
     echo -e "${VERTICAL} ${WHITE}•${NC} Set up monitoring and backup systems"
@@ -119,7 +118,7 @@ show_welcome() {
     echo -e "${YELLOW}Requirements:${NC}"
     echo -e "${VERTICAL} ${WHITE}•${NC} Ubuntu 22.04 or 24.04 server"
     echo -e "${VERTICAL} ${WHITE}•${NC} Regular user with sudo privileges (NOT root)"
-    echo -e "${VERTICAL} ${WHITE}•${NC} Domain name (optional but recommended)"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Domain name (optional - will use IP:8080)"
     echo -e "${VERTICAL} ${WHITE}•${NC} At least 5GB free disk space"
     echo
     echo -e "${GREEN}Estimated time: 10-15 minutes${NC}"
@@ -235,28 +234,25 @@ get_user_preferences() {
     fi
     echo
     
-    # Ask about SSL
-    if [[ "$DOMAIN_NAME" != "localhost" ]]; then
-        echo -e "${CYAN}SSL Configuration:${NC}"
-        read -p "Set up SSL with Let's Encrypt? [Y/n]: " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            INSTALL_SSL=true
-            print_success "SSL will be configured with Let's Encrypt"
-        else
-            print_warning "SSL setup skipped"
-        fi
-        echo
+    # Note about direct access
+    echo -e "${CYAN}Access Configuration:${NC}"
+    if [[ "$USE_DOMAIN" = true ]]; then
+        print_status "Your application will be accessible at: http://$DOMAIN_NAME:8080"
+        print_warning "Make sure your domain DNS points to this server's IP address"
+    else
+        print_status "Your application will be accessible at: http://YOUR_SERVER_IP:8080"
+        print_warning "No reverse proxy - direct port access only"
     fi
+    echo
     
     # Show summary
     print_header "Configuration Summary"
     echo -e "${VERTICAL} ${WHITE}Platform:${NC} $([ "$DIGITAL_OCEAN" = true ] && echo "Digital Ocean" || echo "Standard Ubuntu")"
-    echo -e "${VERTICAL} ${WHITE}Domain:${NC} $([ "$USE_DOMAIN" = true ] && echo "$DOMAIN_NAME" || echo "IP-based (port 8080)")"
+    echo -e "${VERTICAL} ${WHITE}Access Method:${NC} $([ "$USE_DOMAIN" = true ] && echo "Domain: $DOMAIN_NAME:8080" || echo "Direct IP: YOUR_IP:8080")"
     echo -e "${VERTICAL} ${WHITE}Application Directory:${NC} $APP_DIR"
     echo -e "${VERTICAL} ${WHITE}PostgreSQL:${NC} $([ "$INSTALL_POSTGRES" = true ] && echo "Local" || echo "Docker")"
     echo -e "${VERTICAL} ${WHITE}Redis:${NC} $([ "$INSTALL_REDIS" = true ] && echo "Local" || echo "Docker")"
-    echo -e "${VERTICAL} ${WHITE}SSL:${NC} $([ "$INSTALL_SSL" = true ] && echo "Let's Encrypt" || echo "HTTP only")"
+    echo -e "${VERTICAL} ${WHITE}Reverse Proxy:${NC} None (Direct Port Access)"
     echo
     
     read -p "Press Enter to start installation or Ctrl+C to abort..."
@@ -305,6 +301,17 @@ check_prerequisites() {
         fi
     fi
     print_success "OS version verified: $ID $VERSION_ID"
+    
+    # Check system architecture
+    print_status "Checking system architecture..."
+    local arch=$(uname -m)
+    if [[ "$arch" == "x86_64" ]]; then
+        print_success "x86_64 architecture detected - fully supported"
+    elif [[ "$arch" == "aarch64" ]]; then
+        print_warning "ARM64 architecture detected - some packages may have limited support"
+    else
+        print_warning "Unknown architecture: $arch - compatibility not guaranteed"
+    fi
     
     # Check sudo privileges with better error handling
     print_status "Checking sudo privileges..."
@@ -394,6 +401,55 @@ update_system() {
     print_success "System packages upgraded"
 }
 
+# Function to setup repositories for different Ubuntu versions
+setup_repositories() {
+    print_step "Setting up repositories for Ubuntu $(lsb_release -cs)"
+    
+    local ubuntu_version=$(lsb_release -cs)
+    
+    if [[ "$ubuntu_version" == "jammy" ]]; then
+        # Ubuntu 22.04 LTS
+        print_status "Configuring repositories for Ubuntu 22.04 LTS (Jammy Jellyfish)"
+        
+        # Enable universe repository if not already enabled
+        if ! grep -q "universe" /etc/apt/sources.list; then
+            print_status "Enabling universe repository..."
+            sudo add-apt-repository universe -y >/dev/null 2>&1
+        fi
+        
+        # Enable multiverse repository if not already enabled
+        if ! grep -q "multiverse" /etc/apt/sources.list; then
+            print_status "Enabling multiverse repository..."
+            sudo add-apt-repository multiverse -y >/dev/null 2>&1
+        fi
+        
+        print_success "Ubuntu 22.04 repositories configured"
+        
+    elif [[ "$ubuntu_version" == "noble" ]]; then
+        # Ubuntu 24.04 LTS
+        print_status "Configuring repositories for Ubuntu 24.04 LTS (Noble Numbat)"
+        
+        # Ubuntu 24.04 has these repositories enabled by default
+        print_success "Ubuntu 24.04 repositories are pre-configured"
+        
+    else
+        # Other Ubuntu versions
+        print_warning "Unknown Ubuntu version: $ubuntu_version"
+        print_status "Attempting to enable standard repositories..."
+        
+        # Try to enable universe and multiverse
+        sudo add-apt-repository universe -y >/dev/null 2>&1 || true
+        sudo add-apt-repository multiverse -y >/dev/null 2>&1 || true
+        
+        print_success "Standard repositories configured"
+    fi
+    
+    # Update package lists after repository changes
+    print_status "Updating package lists after repository changes..."
+    sudo apt update >/dev/null 2>&1
+    print_success "Repository setup completed"
+}
+
 # Function to install essential packages
 install_essential_packages() {
     print_step "Installing essential packages"
@@ -414,12 +470,39 @@ install_java() {
     print_step "Installing OpenJDK 17"
     
     print_status "Installing OpenJDK 17..."
-    sudo apt install -y openjdk-17-jdk openjdk-17-jre >/dev/null 2>&1
+    # Handle different Ubuntu versions for Java installation
+    local ubuntu_version=$(lsb_release -cs)
+    if [[ "$ubuntu_version" == "jammy" ]]; then
+        # Ubuntu 22.04 LTS - use universe repository
+        sudo apt update >/dev/null 2>&1
+        sudo apt install -y openjdk-17-jdk openjdk-17-jre >/dev/null 2>&1
+    elif [[ "$ubuntu_version" == "noble" ]]; then
+        # Ubuntu 24.04 LTS - default repositories
+        sudo apt install -y openjdk-17-jdk openjdk-17-jre >/dev/null 2>&1
+    else
+        # Fallback for other versions
+        sudo apt install -y openjdk-17-jdk openjdk-17-jre >/dev/null 2>&1
+    fi
     
-    # Set JAVA_HOME
-    echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' >> ~/.bashrc
-    echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
-    source ~/.bashrc
+    # Set JAVA_HOME based on architecture
+    local java_home=""
+    if [[ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]]; then
+        java_home="/usr/lib/jvm/java-17-openjdk-amd64"
+    elif [[ -d "/usr/lib/jvm/java-17-openjdk-x64" ]]; then
+        java_home="/usr/lib/jvm/java-17-openjdk-x64"
+    else
+        # Find Java installation
+        java_home=$(update-alternatives --list java | head -1 | sed 's|/bin/java||')
+    fi
+    
+    if [[ -n "$java_home" ]]; then
+        echo "export JAVA_HOME=$java_home" >> ~/.bashrc
+        echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
+        source ~/.bashrc
+        print_success "JAVA_HOME set to: $java_home"
+    else
+        print_warning "Could not determine JAVA_HOME automatically"
+    fi
     
     # Verify installation
     java_version=$(java -version 2>&1 | head -n 1 | cut -d'"' -f2)
@@ -431,7 +514,19 @@ install_maven() {
     print_step "Installing Maven"
     
     print_status "Installing Maven..."
-    sudo apt install -y maven >/dev/null 2>&1
+    # Handle different Ubuntu versions for Maven installation
+    local ubuntu_version=$(lsb_release -cs)
+    if [[ "$ubuntu_version" == "jammy" ]]; then
+        # Ubuntu 22.04 LTS - use universe repository
+        sudo apt update >/dev/null 2>&1
+        sudo apt install -y maven >/dev/null 2>&1
+    elif [[ "$ubuntu_version" == "noble" ]]; then
+        # Ubuntu 24.04 LTS - default repositories
+        sudo apt install -y maven >/dev/null 2>&1
+    else
+        # Fallback for other versions
+        sudo apt install -y maven >/dev/null 2>&1
+    fi
     
     # Verify installation
     maven_version=$(mvn -version 2>&1 | head -n 1 | cut -d' ' -f3)
@@ -452,7 +547,18 @@ install_docker() {
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg >/dev/null 2>&1
     
     print_status "Adding Docker repository..."
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    # Handle different Ubuntu versions for Docker repository
+    local ubuntu_version=$(lsb_release -cs)
+    if [[ "$ubuntu_version" == "jammy" ]]; then
+        # Ubuntu 22.04 LTS
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu jammy stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    elif [[ "$ubuntu_version" == "noble" ]]; then
+        # Ubuntu 24.04 LTS
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    else
+        # Fallback to detected version
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $ubuntu_version stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+    fi
     
     print_status "Installing Docker..."
     sudo apt update >/dev/null 2>&1
@@ -463,7 +569,7 @@ install_docker() {
     sudo systemctl start docker
     sudo systemctl enable docker
     
-    # Install Docker Compose standalone
+    # Install Docker Compose standalone (backup)
     sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose >/dev/null 2>&1
     sudo chmod +x /usr/local/bin/docker-compose
     
@@ -473,21 +579,29 @@ install_docker() {
     print_warning "You may need to log out and back in for docker group permissions"
 }
 
-# Function to install Nginx
-install_nginx() {
-    print_step "Installing and configuring Nginx"
+# Function to configure firewall for direct port access
+configure_firewall_direct() {
+    print_step "Configuring firewall for direct port access"
     
-    print_status "Installing Nginx..."
-    sudo apt install -y nginx >/dev/null 2>&1
+    print_status "Opening required ports..."
     
-    print_status "Starting Nginx..."
-    sudo systemctl start nginx
-    sudo systemctl enable nginx
+    # Open SSH port (22)
+    sudo ufw allow 22/tcp
     
-    print_status "Configuring firewall..."
-    sudo ufw allow 'Nginx Full' >/dev/null 2>&1
+    # Open application port directly
+    sudo ufw allow 8080/tcp
     
-    print_success "Nginx installed and configured"
+    # Open database ports if needed
+    sudo ufw allow 5432/tcp  # PostgreSQL
+    sudo ufw allow 6379/tcp  # Redis
+    sudo ufw allow 9092/tcp  # Kafka
+    
+    # Enable UFW if not already enabled
+    if ! sudo ufw status | grep -q "Status: active"; then
+        echo "y" | sudo ufw enable
+    fi
+    
+    print_success "Firewall configured for direct port access"
 }
 
 # Function to configure Digital Ocean firewall
@@ -558,79 +672,20 @@ create_app_directory() {
     print_success "Application directories created at $APP_DIR"
 }
 
-# Function to configure Nginx
-configure_nginx() {
-    print_step "Configuring Nginx virtual host"
+# Function to configure application for direct port access
+configure_direct_access() {
+    print_step "Configuring application for direct port access"
     
     if [[ "$USE_DOMAIN" = true ]]; then
-        # Create Nginx configuration for domain
-        sudo tee /etc/nginx/sites-available/authservice >/dev/null << NGINX_DOMAIN_EOF
-server {
-    listen 80;
-    server_name $DOMAIN_NAME www.$DOMAIN_NAME;
-    
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-    
-    location /static/ {
-        alias $APP_DIR/static/;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-    
-    location /actuator/health {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-NGINX_DOMAIN_EOF
-        print_success "Nginx configured for domain: $DOMAIN_NAME"
+        print_status "Domain configured: $DOMAIN_NAME"
+        print_status "Application will be accessible at: http://$DOMAIN_NAME:8080"
+        print_warning "Make sure your domain DNS points to this server's IP address"
     else
-        # Create Nginx configuration for IP-based access
-        sudo tee /etc/nginx/sites-available/authservice >/dev/null << NGINX_IP_EOF
-server {
-    listen 80;
-    server_name _;
-    
-    # Redirect root to application port
-    location / {
-        return 301 http://\$host:8080;
-    }
-    
-    # Health check endpoint
-    location /health {
-        return 200 "OK";
-        add_header Content-Type text/plain;
-    }
-}
-NGINX_IP_EOF
-        print_success "Nginx configured for IP-based access (port 8080)"
+        print_status "No domain configured - using IP address"
+        print_status "Application will be accessible at: http://YOUR_SERVER_IP:8080"
     fi
     
-    # Enable site
-    sudo ln -sf /etc/nginx/sites-available/authservice /etc/nginx/sites-enabled/
-    sudo rm -f /etc/nginx/sites-enabled/default
-    
-    # Test configuration
-    if sudo nginx -t >/dev/null 2>&1; then
-        sudo systemctl reload nginx
-        print_success "Nginx configuration applied successfully"
-    else
-        print_error "Nginx configuration failed"
-        exit 1
-    fi
+    print_success "Direct port access configured on port 8080"
 }
 
 # Function to setup Docker Compose
@@ -779,23 +834,51 @@ SERVICE_EOF
     print_success "Systemd service created and enabled"
 }
 
-# Function to setup SSL
-setup_ssl() {
-    if [[ "$INSTALL_SSL" = true ]]; then
-        print_step "Setting up SSL with Let's Encrypt"
-        
-        print_status "Installing Certbot..."
-        sudo apt install -y certbot python3-certbot-nginx >/dev/null 2>&1
-        
-        print_status "Obtaining SSL certificate..."
-        sudo certbot --nginx -d $DOMAIN_NAME -d www.$DOMAIN_NAME --non-interactive --agree-tos --email admin@$DOMAIN_NAME >/dev/null 2>&1
-        
-        if [[ $? -eq 0 ]]; then
-            print_success "SSL certificate obtained successfully"
-        else
-            print_warning "SSL certificate setup failed. You can try manually later."
-        fi
-    fi
+# Function to setup application port configuration
+setup_application_port() {
+    print_step "Setting up application port configuration"
+    
+    # Create application properties for production
+    cat > $APP_DIR/application-prod.properties << 'PROPERTIES_EOF'
+# Production Configuration for Direct Port Access
+server.port=8080
+server.address=0.0.0.0
+
+# Database Configuration (update with your actual values)
+spring.datasource.url=jdbc:postgresql://localhost:5432/authservice
+spring.datasource.username=postgres
+spring.datasource.password=your_password_here
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# JPA Configuration
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+
+# JWT Configuration
+jwt.secret=your_jwt_secret_key_here_change_in_production
+jwt.expiration=86400000
+
+# Email Configuration (update with your actual values)
+spring.mail.host=smtp.gmail.com
+spring.mail.port=587
+spring.mail.username=your_email@gmail.com
+spring.mail.password=your_app_password
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+
+# Logging
+logging.level.root=INFO
+logging.level.com.bellpatra.authservice=DEBUG
+logging.file.name=/var/log/authservice/application.log
+logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+
+# Actuator
+management.endpoints.web.exposure.include=health,info,metrics
+management.endpoint.health.show-details=when-authorized
+PROPERTIES_EOF
+    
+    print_success "Application port configuration created"
 }
 
 # Function to create management scripts
@@ -832,13 +915,12 @@ DOCKER_EOF
     
     chmod +x $APP_DIR/docker-manage.sh
     
-    # Create monitoring script
+    # Create enhanced monitoring script
     cat > $APP_DIR/monitor.sh << 'MONITOR_EOF'
 #!/bin/bash
 echo "🔍 Auth Service Status Report"
 echo "=============================="
 echo "Application: $(sudo systemctl is-active authservice.service)"
-echo "Nginx: $(sudo systemctl is-active nginx)"
 echo "Docker: $(sudo systemctl is-active docker)"
 echo "PostgreSQL: $(docker exec authservice-postgres-prod pg_isready -U postgres 2>/dev/null && echo "Healthy" || echo "Unhealthy")"
 MONITOR_EOF
@@ -846,6 +928,375 @@ MONITOR_EOF
     chmod +x $APP_DIR/monitor.sh
     
     print_success "Management scripts created"
+}
+
+# Function to create automated testing scripts
+create_automated_testing() {
+    print_step "Creating automated testing and health check scripts"
+    
+    # Create comprehensive health check script
+    cat > $APP_DIR/health-check.sh << 'HEALTH_EOF'
+#!/bin/bash
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}🏥 Comprehensive Health Check${NC}"
+echo "=================================="
+
+# Check application service
+echo -e "\n${BLUE}Application Service:${NC}"
+if sudo systemctl is-active --quiet authservice.service; then
+    echo -e "${GREEN}✅ Auth Service: Running${NC}"
+    echo "   Uptime: $(sudo systemctl show authservice.service --property=ActiveEnterTimestamp | cut -d'=' -f2)"
+else
+    echo -e "${RED}❌ Auth Service: Not running${NC}"
+fi
+
+# Check application port
+echo -e "\n${BLUE}Application Port (8080):${NC}"
+if netstat -tlnp | grep -q ":8080"; then
+    echo -e "${GREEN}✅ Port 8080: Listening${NC}"
+    echo "   Process: $(netstat -tlnp | grep ":8080" | awk '{print $7}')"
+else
+    echo -e "${RED}❌ Port 8080: Not listening${NC}"
+fi
+
+# Check Docker services
+echo -e "\n${BLUE}Docker Services:${NC}"
+if command -v docker &> /dev/null; then
+    if docker compose -f docker-compose-prod.yml ps | grep -q "Up"; then
+        echo -e "${GREEN}✅ Docker services: Running${NC}"
+        docker compose -f docker-compose-prod.yml ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+    else
+        echo -e "${RED}❌ Docker services: Not running${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Docker: Not installed${NC}"
+fi
+
+# Check database connectivity
+echo -e "\n${BLUE}Database Connectivity:${NC}"
+if docker exec authservice-postgres-prod pg_isready -U postgres >/dev/null 2>&1; then
+    echo -e "${GREEN}✅ PostgreSQL: Healthy${NC}"
+else
+    echo -e "${RED}❌ PostgreSQL: Unhealthy${NC}"
+fi
+
+# Check Redis connectivity
+echo -e "\n${BLUE}Redis Connectivity:${NC}"
+if docker exec authservice-redis-prod redis-cli ping >/dev/null 2>&1; then
+    echo -e "${GREEN}✅ Redis: Healthy${NC}"
+else
+    echo -e "${RED}❌ Redis: Unhealthy${NC}"
+fi
+
+# Check application endpoints
+echo -e "\n${BLUE}Application Endpoints:${NC}"
+if curl -s http://localhost:8080/actuator/health >/dev/null 2>&1; then
+    echo -e "${GREEN}✅ Health endpoint: Accessible${NC}"
+    health_status=$(curl -s http://localhost:8080/actuator/health | jq -r '.status' 2>/dev/null || echo "Unknown")
+    echo "   Status: $health_status"
+else
+    echo -e "${RED}❌ Health endpoint: Not accessible${NC}"
+fi
+
+# Check system resources
+echo -e "\n${BLUE}System Resources:${NC}"
+cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
+memory_usage=$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2}')
+disk_usage=$(df -h / | awk 'NR==2{print $5}')
+
+echo "   CPU Usage: ${cpu_usage}%"
+echo "   Memory Usage: ${memory_usage}"
+echo "   Disk Usage: ${disk_usage}"
+
+# Check firewall status
+echo -e "\n${BLUE}Firewall Status:${NC}"
+if sudo ufw status | grep -q "Status: active"; then
+    echo -e "${GREEN}✅ UFW: Active${NC}"
+    echo "   Open ports: $(sudo ufw status | grep -E '^[0-9]+' | wc -l)"
+else
+    echo -e "${YELLOW}⚠️  UFW: Inactive${NC}"
+fi
+
+echo -e "\n${BLUE}Health Check Complete${NC}"
+HEALTH_EOF
+    
+    chmod +x $APP_DIR/health-check.sh
+    
+    # Create automated testing script
+    cat > $APP_DIR/run-tests.sh << 'TEST_EOF'
+#!/bin/bash
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}🧪 Automated Testing Suite${NC}"
+echo "============================="
+
+# Function to run test
+run_test() {
+    local test_name="$1"
+    local test_command="$2"
+    local expected_result="$3"
+    
+    echo -e "\n${BLUE}Running: $test_name${NC}"
+    
+    if eval "$test_command" >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ PASS: $test_name${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ FAIL: $test_name${NC}"
+        return 1
+    fi
+}
+
+# Test counter
+total_tests=0
+passed_tests=0
+
+# Test 1: Application service status
+total_tests=$((total_tests + 1))
+if run_test "Application Service Status" "sudo systemctl is-active --quiet authservice.service" "running"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Test 2: Port 8080 listening
+total_tests=$((total_tests + 1))
+if run_test "Port 8080 Listening" "netstat -tlnp | grep -q ':8080'" "listening"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Test 3: Health endpoint accessible
+total_tests=$((total_tests + 1))
+if run_test "Health Endpoint" "curl -s http://localhost:8080/actuator/health >/dev/null" "accessible"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Test 4: Database connectivity
+total_tests=$((total_tests + 1))
+if run_test "PostgreSQL Connectivity" "docker exec authservice-postgres-prod pg_isready -U postgres >/dev/null" "connected"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Test 5: Redis connectivity
+total_tests=$((total_tests + 1))
+if run_test "Redis Connectivity" "docker exec authservice-redis-prod redis-cli ping >/dev/null" "connected"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Test 6: Docker services running
+total_tests=$((total_tests + 1))
+if run_test "Docker Services" "docker compose -f docker-compose-prod.yml ps | grep -q 'Up'" "running"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Test 7: Firewall active
+total_tests=$((total_tests + 1))
+if run_test "Firewall Status" "sudo ufw status | grep -q 'Status: active'" "active"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Test 8: Port 8080 open in firewall
+total_tests=$((total_tests + 1))
+if run_test "Port 8080 Firewall" "sudo ufw status | grep -q '8080.*ALLOW'" "open"; then
+    passed_tests=$((passed_tests + 1))
+fi
+
+# Summary
+echo -e "\n${BLUE}Test Results Summary:${NC}"
+echo "======================"
+echo -e "${GREEN}Passed: $passed_tests${NC}"
+echo -e "${RED}Failed: $((total_tests - passed_tests))${NC}"
+echo -e "${BLUE}Total: $total_tests${NC}"
+
+# Calculate percentage
+if [[ $total_tests -gt 0 ]]; then
+    percentage=$((passed_tests * 100 / total_tests))
+    echo -e "${BLUE}Success Rate: ${percentage}%${NC}"
+    
+    if [[ $percentage -eq 100 ]]; then
+        echo -e "${GREEN}🎉 All tests passed! Your system is healthy.${NC}"
+        exit 0
+    elif [[ $percentage -ge 80 ]]; then
+        echo -e "${YELLOW}⚠️  Most tests passed. Minor issues detected.${NC}"
+        exit 1
+    else
+        echo -e "${RED}❌ Many tests failed. System needs attention.${NC}"
+        exit 2
+    fi
+else
+    echo -e "${RED}❌ No tests were run.${NC}"
+    exit 1
+fi
+TEST_EOF
+    
+    chmod +x $APP_DIR/run-tests.sh
+    
+    # Create continuous monitoring script
+    cat > $APP_DIR/continuous-monitor.sh << 'MONITOR_EOF'
+#!/bin/bash
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}📊 Continuous Monitoring Started${NC}"
+echo "Press Ctrl+C to stop monitoring"
+echo "=================================="
+
+# Monitoring interval (seconds)
+INTERVAL=30
+
+# Log file
+LOG_FILE="/var/log/authservice/monitoring.log"
+
+# Create log directory if it doesn't exist
+sudo mkdir -p /var/log/authservice
+sudo chown $USER:$USER /var/log/authservice
+
+# Function to log message
+log_message() {
+    local message="$1"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] $message" | tee -a "$LOG_FILE"
+}
+
+# Function to check service health
+check_service_health() {
+    local service_name="$1"
+    local check_command="$2"
+    
+    if eval "$check_command" >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ $service_name${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ $service_name${NC}"
+        return 1
+    fi
+}
+
+# Main monitoring loop
+while true; do
+    clear
+    echo -e "${BLUE}📊 Continuous Monitoring - $(date)${NC}"
+    echo "=============================================="
+    
+    # Check application service
+    echo -e "\n${BLUE}Application Health:${NC}"
+    check_service_health "Auth Service" "sudo systemctl is-active --quiet authservice.service"
+    check_service_health "Port 8080" "netstat -tlnp | grep -q ':8080'"
+    check_service_health "Health Endpoint" "curl -s http://localhost:8080/actuator/health >/dev/null"
+    
+    # Check Docker services
+    echo -e "\n${BLUE}Docker Services:${NC}"
+    if command -v docker &> /dev/null; then
+        check_service_health "PostgreSQL" "docker exec authservice-postgres-prod pg_isready -U postgres >/dev/null"
+        check_service_health "Redis" "docker exec authservice-redis-prod redis-cli ping >/dev/null"
+    else
+        echo -e "${YELLOW}⚠️  Docker not available${NC}"
+    fi
+    
+    # System resources
+    echo -e "\n${BLUE}System Resources:${NC}"
+    cpu_usage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)
+    memory_usage=$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2}')
+    disk_usage=$(df -h / | awk 'NR==2{print $5}')
+    
+    echo "   CPU: ${cpu_usage}% | Memory: ${memory_usage} | Disk: ${disk_usage}"
+    
+    # Log status
+    log_message "Monitoring check completed - CPU: ${cpu_usage}%, Memory: ${memory_usage}, Disk: ${disk_usage}"
+    
+    # Wait for next check
+    echo -e "\n${BLUE}Next check in ${INTERVAL} seconds... (Press Ctrl+C to stop)${NC}"
+    sleep $INTERVAL
+done
+MONITOR_EOF
+    
+    chmod +x $APP_DIR/continuous-monitor.sh
+    
+    # Create automated deployment test script
+    cat > $APP_DIR/test-deployment.sh << 'DEPLOY_TEST_EOF'
+#!/bin/bash
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}🚀 Automated Deployment Testing${NC}"
+echo "================================="
+
+# Test deployment process
+echo -e "\n${BLUE}Step 1: Building Application${NC}"
+if mvn clean package -DskipTests; then
+    echo -e "${GREEN}✅ Build successful${NC}"
+else
+    echo -e "${RED}❌ Build failed${NC}"
+    exit 1
+fi
+
+echo -e "\n${BLUE}Step 2: Stopping Current Service${NC}"
+sudo systemctl stop authservice.service 2>/dev/null || true
+echo -e "${GREEN}✅ Service stopped${NC}"
+
+echo -e "\n${BLUE}Step 3: Deploying New Version${NC}"
+cp target/*.jar $APP_DIR/authservice.jar
+sudo chown $USER:$USER $APP_DIR/authservice.jar
+chmod +x $APP_DIR/authservice.jar
+echo -e "${GREEN}✅ Application deployed${NC}"
+
+echo -e "\n${BLUE}Step 4: Starting Service${NC}"
+sudo systemctl start authservice.service
+sleep 10  # Wait for service to start
+
+echo -e "\n${BLUE}Step 5: Testing Deployment${NC}"
+if sudo systemctl is-active --quiet authservice.service; then
+    echo -e "${GREEN}✅ Service started successfully${NC}"
+else
+    echo -e "${RED}❌ Service failed to start${NC}"
+    sudo systemctl status authservice.service
+    exit 1
+fi
+
+echo -e "\n${BLUE}Step 6: Health Check${NC}"
+if curl -s http://localhost:8080/actuator/health >/dev/null; then
+    echo -e "${GREEN}✅ Health endpoint accessible${NC}"
+    health_status=$(curl -s http://localhost:8080/actuator/health | jq -r '.status' 2>/dev/null || echo "Unknown")
+    echo "   Status: $health_status"
+else
+    echo -e "${RED}❌ Health endpoint not accessible${NC}"
+    exit 1
+fi
+
+echo -e "\n${BLUE}Step 7: Running Full Test Suite${NC}"
+if ./run-tests.sh; then
+    echo -e "${GREEN}✅ All tests passed${NC}"
+else
+    echo -e "${YELLOW}⚠️  Some tests failed${NC}"
+fi
+
+echo -e "\n${GREEN}🎉 Deployment testing completed successfully!${NC}"
+DEPLOY_TEST_EOF
+    
+    chmod +x $APP_DIR/test-deployment.sh
+    
+    print_success "Automated testing scripts created"
 }
 
 # Function to create Digital Ocean specific scripts
@@ -954,14 +1405,22 @@ show_completion() {
     echo -e "${VERTICAL} ${WHITE}•${NC} Monitor: ./monitor.sh"
     echo -e "${VERTICAL} ${WHITE}•${NC} View logs: sudo journalctl -u authservice.service -f"
     echo
+    echo -e "${CYAN}🧪 Testing & Health Checks:${NC}"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Health check: ./health-check.sh"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Run tests: ./run-tests.sh"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Test deployment: ./test-deployment.sh"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Continuous monitoring: ./continuous-monitor.sh"
+    echo
     
     echo -e "${CYAN}🌐 Access Points:${NC}"
     if [[ "$USE_DOMAIN" = true ]]; then
-        echo -e "${VERTICAL} ${WHITE}•${NC} Application: http://$DOMAIN_NAME"
-        echo -e "${VERTICAL} ${WHITE}•${NC} Health Check: http://$DOMAIN_NAME/actuator/health"
+        echo -e "${VERTICAL} ${WHITE}•${NC} Application: http://$DOMAIN_NAME:8080"
+        echo -e "${VERTICAL} ${WHITE}•${NC} Health Check: http://$DOMAIN_NAME:8080/actuator/health"
+        echo -e "${VERTICAL} ${WHITE}•${NC} API Docs: http://$DOMAIN_NAME:8080/v3/api-docs"
     else
         echo -e "${VERTICAL} ${WHITE}•${NC} Application: http://YOUR_IP:8080"
         echo -e "${VERTICAL} ${WHITE}•${NC} Health Check: http://YOUR_IP:8080/actuator/health"
+        echo -e "${VERTICAL} ${WHITE}•${NC} API Docs: http://YOUR_IP:8080/v3/api-docs"
     fi
     echo -e "${VERTICAL} ${WHITE}•${NC} PostgreSQL: localhost:5432"
     echo -e "${VERTICAL} ${WHITE}•${NC} Redis: localhost:6379"
@@ -1091,19 +1550,20 @@ main() {
     get_user_preferences
     check_prerequisites
     update_system
+    setup_repositories
     install_essential_packages
     install_java
     install_maven
     install_docker
-    install_nginx
-    configure_digital_ocean_firewall
+    configure_firewall_direct
     install_optional_services
     create_app_directory
-    configure_nginx
+    configure_direct_access
     setup_docker_compose
     create_systemd_service
-    setup_ssl
+    setup_application_port
     create_management_scripts
+    create_automated_testing
     create_digital_ocean_scripts
     create_code_push_script
     
