@@ -117,15 +117,71 @@ show_welcome() {
     echo -e "${VERTICAL} ${WHITE}•${NC} Set up monitoring and backup systems"
     echo
     echo -e "${YELLOW}Requirements:${NC}"
-    echo -e "${VERTICAL} ${WHITE}•${NC} Ubuntu 24.04 server"
-    echo -e "${VERTICAL} ${WHITE}•${NC} Sudo privileges"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Ubuntu 22.04 or 24.04 server"
+    echo -e "${VERTICAL} ${WHITE}•${NC} Regular user with sudo privileges (NOT root)"
     echo -e "${VERTICAL} ${WHITE}•${NC} Domain name (optional but recommended)"
+    echo -e "${VERTICAL} ${WHITE}•${NC} At least 5GB free disk space"
     echo
     echo -e "${GREEN}Estimated time: 10-15 minutes${NC}"
     echo
     
+    # Check if user needs help with sudo setup
+    if ! sudo -n true 2>/dev/null; then
+        echo -e "${RED}⚠️  Sudo access not available!${NC}"
+        echo -e "${YELLOW}You need to set up sudo access before running this script.${NC}"
+        echo
+        echo -e "${CYAN}Quick Fix Options:${NC}"
+        echo -e "${VERTICAL} ${WHITE}1.${NC} Use Digital Ocean Console (recommended)"
+        echo -e "${VERTICAL} ${WHITE}2.${NC} Switch to root and add user to sudo group"
+        echo -e "${VERTICAL} ${WHITE}3.${NC} Recreate droplet with proper user setup"
+        echo
+        echo -e "${BLUE}Press Enter to see detailed setup instructions...${NC}"
+        read -p ""
+        
+        show_sudo_setup_help
+        exit 1
+    fi
+    
     read -p "Press Enter to continue or Ctrl+C to abort..."
     echo
+}
+
+# Function to show sudo setup help
+show_sudo_setup_help() {
+    clear_screen
+    print_header "🔧 Sudo Setup Instructions"
+    
+    echo -e "${CYAN}Method 1: Digital Ocean Console (Easiest)${NC}"
+    echo -e "${VERTICAL} ${WHITE}1.${NC} Go to your Digital Ocean dashboard"
+    echo -e "${VERTICAL} ${WHITE}2.${NC} Click on your droplet"
+    echo -e "${VERTICAL} ${WHITE}3.${NC} Click 'Console' or 'Launch Console'"
+    echo -e "${VERTICAL} ${WHITE}4.${NC} This gives you root access"
+    echo -e "${VERTICAL} ${WHITE}5.${NC} Run these commands:"
+    echo
+    echo -e "${WHITE}   # Create new user with sudo${NC}"
+    echo -e "${WHITE}   adduser deployuser${NC}"
+    echo -e "${WHITE}   usermod -aG sudo deployuser${NC}"
+    echo -e "${WHITE}   exit${NC}"
+    echo
+    echo -e "${WHITE}   # SSH as new user${NC}"
+    echo -e "${WHITE}   ssh deployuser@your-server-ip${NC}"
+    echo
+    echo -e "${CYAN}Method 2: Command Line Fix${NC}"
+    echo -e "${VERTICAL} ${WHITE}1.${NC} Switch to root: su -"
+    echo -e "${VERTICAL} ${WHITE}2.${NC} Add user to sudo: usermod -aG sudo \$USER"
+    echo -e "${VERTICAL} ${WHITE}3.${NC} Exit root: exit"
+    echo -e "${VERTICAL} ${WHITE}4.${NC} Test: sudo whoami"
+    echo
+    echo -e "${CYAN}Method 3: Recreate Droplet${NC}"
+    echo -e "${VERTICAL} ${WHITE}1.${NC} Take snapshot of current droplet"
+    echo -e "${VERTICAL} ${WHITE}2.${NC} Create new droplet with Ubuntu 22.04"
+    echo -e "${VERTICAL} ${WHITE}3.${NC} Use SSH key or set root password during creation"
+    echo -e "${VERTICAL} ${WHITE}4.${NC} Create user with sudo from the start"
+    echo
+    echo -e "${YELLOW}After setting up sudo access, run this script again:${NC}"
+    echo -e "${WHITE}./deploy-enhanced.sh${NC}"
+    echo
+    echo -e "${GREEN}Need more help? Check Digital Ocean documentation or contact support.${NC}"
 }
 
 # Function to get user preferences
@@ -214,19 +270,34 @@ check_prerequisites() {
     # Check if running as root
     if [[ $EUID -eq 0 ]]; then
         print_error "This script should not be run as root. Please run as a regular user with sudo privileges."
+        print_status "To fix this:"
+        print_status "1. Exit root user: exit"
+        print_status "2. Login as regular user: ssh username@your-server-ip"
+        print_status "3. Ensure user has sudo access: sudo whoami"
         exit 1
     fi
     print_success "User permissions verified"
     
-    # Check if running on Ubuntu 24.04
+    # Check if running on Ubuntu
     if [[ ! -f /etc/os-release ]]; then
-        print_error "This script is designed for Ubuntu 24.04. Please run on a supported system."
+        print_error "This script is designed for Ubuntu. Please run on a supported system."
         exit 1
     fi
     
     source /etc/os-release
-    if [[ "$ID" != "ubuntu" || "$VERSION_ID" != "24.04" ]]; then
-        print_warning "This script is designed for Ubuntu 24.04. You are running $ID $VERSION_ID"
+    if [[ "$ID" != "ubuntu" ]]; then
+        print_error "This script is designed for Ubuntu. You are running $ID $VERSION_ID"
+        exit 1
+    fi
+    
+    # Check Ubuntu version compatibility
+    if [[ "$VERSION_ID" == "22.04" ]]; then
+        print_warning "Ubuntu 22.04 detected. This version is supported but may have minor differences."
+        print_status "Continuing with Ubuntu 22.04..."
+    elif [[ "$VERSION_ID" == "24.04" ]]; then
+        print_success "Ubuntu 24.04 detected - fully supported version."
+    else
+        print_warning "Ubuntu $VERSION_ID detected. This version may have compatibility issues."
         read -p "Do you want to continue anyway? [y/N]: " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -235,19 +306,79 @@ check_prerequisites() {
     fi
     print_success "OS version verified: $ID $VERSION_ID"
     
-    # Check sudo privileges
+    # Check sudo privileges with better error handling
+    print_status "Checking sudo privileges..."
     if ! sudo -n true 2>/dev/null; then
         print_error "Sudo privileges required. Please ensure you can run sudo commands."
+        print_status "To fix this, run these commands:"
+        print_status "1. Switch to root: su -"
+        print_status "2. Add user to sudo group: usermod -aG sudo $USER"
+        print_status "3. Exit root: exit"
+        print_status "4. Test sudo: sudo whoami"
+        print_status "5. Run this script again: ./deploy-enhanced.sh"
         exit 1
     fi
     print_success "Sudo privileges verified"
     
     # Check internet connectivity
+    print_status "Checking internet connectivity..."
     if ! ping -c 1 8.8.8.8 >/dev/null 2>&1; then
         print_error "Internet connectivity required. Please check your network connection."
         exit 1
     fi
     print_success "Internet connectivity verified"
+    
+    # Check available disk space
+    print_status "Checking disk space..."
+    local available_space=$(df / | awk 'NR==2 {print $4}')
+    local available_gb=$((available_space / 1024 / 1024))
+    if [[ $available_gb -lt 5 ]]; then
+        print_warning "Low disk space detected: ${available_gb}GB available. Recommended: 10GB+"
+        read -p "Continue anyway? [y/N]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        print_success "Disk space verified: ${available_gb}GB available"
+    fi
+}
+
+# Function to auto-fix common privilege issues
+auto_fix_privileges() {
+    print_step "Auto-fixing common privilege issues"
+    
+    # Check if user is in sudo group
+    if ! groups | grep -q sudo && ! groups | grep -q admin; then
+        print_warning "User not in sudo group. Attempting to fix..."
+        
+        # Try to switch to root and fix
+        if [[ -w /etc/group ]]; then
+            print_status "Attempting to add user to sudo group..."
+            # This is a fallback - usually won't work without root
+            print_warning "Cannot auto-fix: root access required"
+            print_status "Please use one of the manual methods shown earlier"
+            return 1
+        fi
+    fi
+    
+    # Check if sudo is installed
+    if ! command -v sudo &> /dev/null; then
+        print_warning "Sudo not installed. Attempting to install..."
+        if command -v apt &> /dev/null; then
+            # Try to install sudo (this might fail without root)
+            print_status "Installing sudo..."
+            if apt install -y sudo 2>/dev/null; then
+                print_success "Sudo installed successfully"
+            else
+                print_warning "Cannot install sudo without root access"
+                return 1
+            fi
+        fi
+    fi
+    
+    print_success "Privilege issues resolved or require manual intervention"
+    return 0
 }
 
 # Function to update system
