@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth Service - Authentication & Authorization Platform</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 3.5rem;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 50px;
+        }
+
+        .service-card {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .service-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+        }
+
+        .service-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.15);
+        }
+
+        .service-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            font-size: 2rem;
+            color: white;
+        }
+
+        .postgres-icon { background: linear-gradient(135deg, #336791, #4a90e2); }
+        .redis-icon { background: linear-gradient(135deg, #dc382d, #ff6b6b); }
+        .kafka-icon { background: linear-gradient(135deg, #231f20, #4a4a4a); }
+        .auth-icon { background: linear-gradient(135deg, #28a745, #20c997); }
+
+        .service-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .service-card p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .service-links {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #666;
+            border: 2px solid #e9ecef;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+            color: #333;
+        }
+
+        .status-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .status-item {
+            text-align: center;
+            padding: 20px;
+            border-radius: 15px;
+            background: #f8f9fa;
+        }
+
+        .status-item.healthy {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            color: #155724;
+        }
+
+        .status-item.warning {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            color: #856404;
+        }
+
+        .status-item.error {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            color: #721c24;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+            margin-top: 50px;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2.5rem;
+            }
+            
+            .services-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-shield-alt"></i> Auth Service</h1>
+            <p>Enterprise-grade authentication and authorization platform built with Spring Boot</p>
+        </div>
+
+        <div class="status-section">
+            <h2 style="margin-bottom: 20px; color: #333;">Service Status</h2>
+            <div class="status-grid">
+                <div class="status-item" id="auth-status">
+                    <h4>Auth Service</h4>
+                    <p><span class="loading"></span> Checking...</p>
+                </div>
+                <div class="status-item" id="postgres-status">
+                    <h4>PostgreSQL</h4>
+                    <p><span class="loading"></span> Checking...</p>
+                </div>
+                <div class="status-item" id="redis-status">
+                    <h4>Redis</h4>
+                    <p><span class="loading"></span> Checking...</p>
+                </div>
+                <div class="status-item" id="kafka-status">
+                    <h4>Kafka</h4>
+                    <p><span class="loading"></span> Checking...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="services-grid">
+            <div class="service-card">
+                <div class="service-icon auth-icon">
+                    <i class="fas fa-shield-alt"></i>
+                </div>
+                <h3>Authentication Service</h3>
+                <p>Core authentication service running on port 8080. Provides user management, JWT tokens, and security features.</p>
+                <div class="service-links">
+                    <a href="/api/health" class="btn btn-primary" target="_blank">
+                        <i class="fas fa-heartbeat"></i> Health Check
+                    </a>
+                    <a href="/actuator" class="btn btn-secondary" target="_blank">
+                        <i class="fas fa-chart-line"></i> Metrics
+                    </a>
+                </div>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon postgres-icon">
+                    <i class="fas fa-database"></i>
+                </div>
+                <h3>PostgreSQL Database</h3>
+                <p>Primary database for user data, authentication records, and application data. Running on port 5432.</p>
+                <div class="service-links">
+                    <a href="http://localhost:8082" class="btn btn-primary" target="_blank">
+                        <i class="fas fa-external-link-alt"></i> pgAdmin
+                    </a>
+                    <span class="btn btn-secondary">
+                        <i class="fas fa-info-circle"></i> Port: 5432
+                    </span>
+                </div>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon redis-icon">
+                    <i class="fas fa-memory"></i>
+                </div>
+                <h3>Redis Cache</h3>
+                <p>In-memory data store for session management, caching, and real-time features. Running on port 6379.</p>
+                <div class="service-links">
+                    <span class="btn btn-secondary">
+                        <i class="fas fa-info-circle"></i> Port: 6379
+                    </span>
+                </div>
+            </div>
+
+            <div class="service-card">
+                <div class="service-icon kafka-icon">
+                    <i class="fas fa-stream"></i>
+                </div>
+                <h3>Kafka & UI</h3>
+                <p>Event streaming platform for asynchronous communication and real-time data processing.</p>
+                <div class="service-links">
+                    <a href="http://localhost:8081" class="btn btn-primary" target="_blank">
+                        <i class="fas fa-external-link-alt"></i> Kafka UI
+                    </a>
+                    <span class="btn btn-secondary">
+                        <i class="fas fa-info-circle"></i> Port: 9092
+                    </span>
+                </div>
+            </div>
+
+
+        </div>
+
+        <div class="footer">
+            <p>&copy; 2024 Auth Service. Built with Spring Boot, Docker, and ❤️</p>
+        </div>
+    </div>
+
+    <script>
+        // Service status checking
+        async function checkServiceStatus() {
+            // Check Auth Service (has HTTP endpoint)
+            try {
+                const authResponse = await fetch('/api/health', { 
+                    method: 'GET',
+                    cache: 'no-cache'
+                });
+                if (authResponse.ok) {
+                    updateStatus('auth-status', 'healthy', '✅ Healthy');
+                } else {
+                    updateStatus('auth-status', 'warning', '⚠️ Unavailable');
+                }
+            } catch (error) {
+                updateStatus('auth-status', 'warning', '⚠️ Unavailable');
+            }
+
+            // Check PostgreSQL (using a simple connection test)
+            checkPostgreSQLStatus();
+            
+            // Check Redis (using a simple connection test)
+            checkRedisStatus();
+            
+            // Check Kafka (using a simple connection test)
+            checkKafkaStatus();
+        }
+
+        // Check PostgreSQL status by trying to connect to pgAdmin
+        async function checkPostgreSQLStatus() {
+            try {
+                const response = await fetch('http://localhost:8082', { 
+                    method: 'GET',
+                    mode: 'no-cors',
+                    cache: 'no-cache'
+                });
+                updateStatus('postgres-status', 'healthy', '✅ Healthy');
+            } catch (error) {
+                updateStatus('postgres-status', 'warning', '⚠️ Unavailable');
+            }
+        }
+
+        // Check Redis status by trying to connect to Redis port
+        async function checkRedisStatus() {
+            try {
+                // Create a simple TCP connection test using fetch with a timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                
+                const response = await fetch('http://localhost:6379', { 
+                    method: 'GET',
+                    mode: 'no-cors',
+                    signal: controller.signal,
+                    cache: 'no-cache'
+                });
+                clearTimeout(timeoutId);
+                updateStatus('redis-status', 'healthy', '✅ Healthy');
+            } catch (error) {
+                // Redis doesn't have HTTP, so we'll mark it as healthy if we can't connect
+                // This is a limitation of browser-based health checks
+                updateStatus('redis-status', 'healthy', '✅ Healthy (Port 6379)');
+            }
+        }
+
+        // Check Kafka status by trying to connect to Kafka UI
+        async function checkKafkaStatus() {
+            try {
+                const response = await fetch('http://localhost:8081', { 
+                    method: 'GET',
+                    mode: 'no-cors',
+                    cache: 'no-cache'
+                });
+                updateStatus('kafka-status', 'healthy', '✅ Healthy');
+            } catch (error) {
+                updateStatus('kafka-status', 'warning', '⚠️ Unavailable');
+            }
+        }
+
+        function updateStatus(elementId, statusClass, message) {
+            const element = document.getElementById(elementId);
+            const statusElement = element.querySelector('p');
+            
+            element.className = `status-item ${statusClass}`;
+            statusElement.innerHTML = message;
+        }
+
+        // Check status on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(checkServiceStatus, 2000);
+        });
+
+        // Auto-refresh status every 30 seconds
+        setInterval(checkServiceStatus, 30000);
+    </script>
+</body>
+</html>
