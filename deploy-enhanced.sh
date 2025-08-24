@@ -869,7 +869,7 @@ spring.mail.properties.mail.smtp.starttls.enable=true
 
 # Logging
 logging.level.root=INFO
-logging.level.com.bellpatra.authservice=DEBUG
+logging.level.com.josam.authservice=DEBUG
 logging.file.name=/var/log/authservice/application.log
 logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
 
