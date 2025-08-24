@@ -38,7 +38,7 @@ A comprehensive, production-ready authentication microservice built with Spring 
 ```
 src/
 ├── main/
-│   ├── java/com/bellpatra/authservice/
+│   ├── java/com/josam/authservice/
 │   │   ├── config/                 # Configuration classes
 │   │   │   ├── JpaConfig.java     # JPA auditing configuration
 │   │   │   └── SecurityConfig.java # Spring Security configuration
@@ -564,12 +564,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Community**: Join our developer community
 
 ### Contact
-- **Email**: support@bellpatra.com
-- **GitHub**: [Bellpatra Team](https://github.com/bellpatra)
+- **Email**: support@josam.com
+- **GitHub**: [Josam Team](https://github.com/josam)
 
 ---
 
-**Built with ❤️ by Bellpatra Team**
+**Built with ❤️ by Josam Team**
 
 *Last updated: August 23, 2024*
 *Version: 1.0.0*
